@@ -1,0 +1,229 @@
+﻿name: Reusable Kubernetes Delivery
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name
+        required: true
+        type: string
+
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        type: string
+
+      manifests:
+        description: Kubernetes manifest directory
+        required: false
+        type: string
+        default: kubernetes
+
+      deployment:
+        description: Deployment to verify
+        required: true
+        type: string
+
+      container:
+        description: Container name to update
+        required: true
+        type: string
+
+      image:
+        description: Immutable image reference
+        required: true
+        type: string
+
+      rollout_timeout:
+        description: Rollout timeout
+        required: false
+        type: string
+        default: 300s
+
+      create_namespace:
+        description: Create namespace when missing
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      kubeconfig:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubernetes-delivery-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Kubernetes delivery
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure kubeconfig
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.kubeconfig }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Verify cluster connectivity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl cluster-info
+          kubectl auth can-i get deployments --namespace "${{ inputs.namespace }}" | grep -qx yes
+
+      - name: Ensure namespace
+        if: inputs.create_namespace
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl create namespace "${{ inputs.namespace }}" \
+            --dry-run=client \
+            -o yaml |
+          kubectl apply -f -
+
+      - name: Validate manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! -d "${{ inputs.manifests }}" ]]; then
+            echo "::error::Manifest directory does not exist: ${{ inputs.manifests }}"
+            exit 1
+          fi
+
+          kubectl apply \
+            --dry-run=server \
+            --namespace "${{ inputs.namespace }}" \
+            -f "${{ inputs.manifests }}"
+
+      - name: Capture current image
+        id: previous
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          CURRENT_IMAGE="$(
+            kubectl get deployment "${{ inputs.deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}" \
+              2>/dev/null || true
+          )"
+
+          echo "image=${CURRENT_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Apply manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl apply \
+            --server-side \
+            --field-manager=platform-cicd-toolkit \
+            --namespace "${{ inputs.namespace }}" \
+            -f "${{ inputs.manifests }}"
+
+      - name: Deploy immutable image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl set image \
+            deployment/"${{ inputs.deployment }}" \
+            "${{ inputs.container }}=${{ inputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+      - name: Wait for rollout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl rollout status \
+            deployment/"${{ inputs.deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"
+
+      - name: Verify deployment health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DESIRED="$(
+            kubectl get deployment "${{ inputs.deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.spec.replicas}'
+          )"
+
+          AVAILABLE="$(
+            kubectl get deployment "${{ inputs.deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.status.availableReplicas}'
+          )"
+
+          UPDATED="$(
+            kubectl get deployment "${{ inputs.deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.status.updatedReplicas}'
+          )"
+
+          AVAILABLE="${AVAILABLE:-0}"
+          UPDATED="${UPDATED:-0}"
+
+          if [[ "$AVAILABLE" -ne "$DESIRED" ]]; then
+            echo "::error::Available replicas ${AVAILABLE}/${DESIRED}"
+            exit 1
+          fi
+
+          if [[ "$UPDATED" -ne "$DESIRED" ]]; then
+            echo "::error::Updated replicas ${UPDATED}/${DESIRED}"
+            exit 1
+          fi
+
+      - name: Verify deployed image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DEPLOYED_IMAGE="$(
+            kubectl get deployment "${{ inputs.deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}"
+          )"
+
+          if [[ "$DEPLOYED_IMAGE" != "${{ inputs.image }}" ]]; then
+            echo "::error::Expected ${{ inputs.image }} but found ${DEPLOYED_IMAGE}"
+            exit 1
+          fi
+
+      - name: Automatic rollback
+        if: failure() && steps.previous.outputs.image != ''
+        shell: bash
+        run: |
+          set +e
+
+          echo "Deployment failed. Restoring previous image."
+
+          kubectl set image \
+            deployment/"${{ inputs.deployment }}" \
+            "${{ inputs.container }}=${{ steps.previous.outputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          kubectl rollout status \
+            deployment/"${{ inputs.deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"

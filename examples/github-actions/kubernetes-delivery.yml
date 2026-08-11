@@ -1,0 +1,24 @@
+﻿name: Kubernetes Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-kubernetes-deploy.yml@main
+    with:
+      environment: production
+      namespace: production
+      manifests: templates/kubernetes
+      deployment: platform-demo
+      container: application
+      image: ${{ inputs.image }}
+      rollout_timeout: 300s
+      create_namespace: true
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
