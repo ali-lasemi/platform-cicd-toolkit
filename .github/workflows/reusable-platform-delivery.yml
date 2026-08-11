@@ -145,9 +145,11 @@ jobs:
 
           IMMUTABLE_IMAGE="${IMAGE}@${DIGEST}"
 
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "immutable_image=${IMMUTABLE_IMAGE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "image=${IMAGE}"
+            echo "digest=${DIGEST}"
+            echo "immutable_image=${IMMUTABLE_IMAGE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Write artifact summary
         shell: bash
@@ -191,3 +193,4 @@ jobs:
       create_namespace: true
     secrets:
       kubeconfig: ${{ secrets.kubeconfig }}
+
