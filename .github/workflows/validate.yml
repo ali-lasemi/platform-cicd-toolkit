@@ -54,22 +54,5 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install actionlint
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          VERSION="1.7.7"
-
-          curl --fail --silent --show-error --location \
-            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_x86_64.tar.gz" \
-            --output actionlint.tar.gz || \
-          curl --fail --silent --show-error --location \
-            "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_x86_64.tar.gz" \
-            --output actionlint.tar.gz
-
-          tar -xzf actionlint.tar.gz actionlint
-          sudo install -m 0755 actionlint /usr/local/bin/actionlint
-
-      - name: Validate workflows
-        run: actionlint -color
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:latest
