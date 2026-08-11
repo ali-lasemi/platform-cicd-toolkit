@@ -33,6 +33,9 @@ jobs:
             "ROADMAP.md"
             "CHANGELOG.md"
             "LICENSE"
+            "SECURITY.md"
+            "CONTRIBUTING.md"
+            "docs/architecture.md"
 
             ".github/workflows/reusable-docker-build.yml"
             ".github/workflows/reusable-container-security.yml"
@@ -348,6 +351,7 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 
 
 

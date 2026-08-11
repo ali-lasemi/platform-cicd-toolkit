@@ -1,30 +1,40 @@
-# Roadmap
+﻿# Roadmap
 
-## Phase 1 — CI/CD Template Foundation
+## Completed
 
-- [x] Repository structure
-- [x] Production-oriented README
-- [x] GitHub Actions Node template
-- [x] GitHub Actions Nuxt template
-- [x] GitHub Actions Android template
-- [x] GitLab CI Node template
-- [x] GitLab CI Nuxt template
-- [x] GitLab CI Android template
-- [x] Docker build workflow
-- [x] SSH deployment workflow
-- [x] Rollback workflow
-- [x] Docker registry publishing workflow
-- [x] Release tagging workflow
-- [x] Environment promotion workflow
-- [x] Blue-green deployment example
-- [x] CI/CD documentation
-- [x] Validation workflow
+- [x] Reusable Docker build
+- [x] Immutable image delivery
+- [x] Multi-platform builds
+- [x] Container vulnerability scanning
+- [x] Secret scanning
+- [x] SBOM generation
+- [x] Keyless Cosign signing
+- [x] Provenance attestations
+- [x] Kubernetes delivery
+- [x] Automatic rollback
+- [x] Canary deployment
+- [x] Blue-green deployment
+- [x] Helm releases
+- [x] Environment promotion
+- [x] GitOps promotion
+- [x] Kustomize overlays
+- [x] Argo CD pattern
+- [x] Artifact management
+- [x] Release automation
+- [x] GitLab CI components
+- [x] End-to-end platform delivery
+- [x] Immutable GitHub Action pinning
+- [x] Repository validation
+- [x] Workflow contract tests
+- [x] Architecture documentation
+- [x] Security policy
 
----
+## Next
 
-## Phase 2 — Advanced Delivery
-
-- [ ] Canary deployment example
-- [ ] Kubernetes deployment workflow
-- [ ] Security scanning integration
-- [ ] Multi-environment pipeline examples
+- [ ] AWS OIDC authentication
+- [ ] Azure OIDC authentication
+- [ ] GCP workload identity
+- [ ] Argo Rollouts
+- [ ] Policy-as-code
+- [ ] Backstage integration
+- [ ] OpenTelemetry delivery telemetry
