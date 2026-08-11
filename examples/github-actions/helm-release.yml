@@ -1,0 +1,30 @@
+﻿name: Helm Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_repository:
+        description: Immutable image repository
+        required: true
+        type: string
+
+      image_tag:
+        description: Immutable image tag
+        required: true
+        type: string
+
+jobs:
+  release:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-helm-release.yml@main
+    with:
+      environment: production
+      namespace: production
+      release: platform-app
+      chart: templates/helm/platform-app
+      image_repository: ${{ inputs.image_repository }}
+      image_tag: ${{ inputs.image_tag }}
+      timeout: 5m
+      history_max: 10
+      create_namespace: true
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}

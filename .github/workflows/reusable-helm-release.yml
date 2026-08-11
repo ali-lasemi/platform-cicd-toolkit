@@ -1,0 +1,229 @@
+﻿name: Reusable Helm Release
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name
+        required: true
+        type: string
+
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        type: string
+
+      release:
+        description: Helm release name
+        required: true
+        type: string
+
+      chart:
+        description: Path to Helm chart
+        required: true
+        type: string
+
+      values:
+        description: Optional values file
+        required: false
+        type: string
+        default: ""
+
+      image_repository:
+        description: Immutable image repository
+        required: true
+        type: string
+
+      image_tag:
+        description: Immutable image tag
+        required: true
+        type: string
+
+      timeout:
+        description: Helm operation timeout
+        required: false
+        type: string
+        default: 5m
+
+      history_max:
+        description: Maximum Helm revision history
+        required: false
+        type: number
+        default: 10
+
+      create_namespace:
+        description: Create namespace if missing
+        required: false
+        type: boolean
+        default: true
+
+    secrets:
+      kubeconfig:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Helm release
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure kubeconfig
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.kubeconfig }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Verify cluster connectivity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl cluster-info
+          kubectl auth can-i get deployments --namespace "${{ inputs.namespace }}" | grep -qx yes
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate chart
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm dependency update "${{ inputs.chart }}"
+          helm lint "${{ inputs.chart }}"
+
+      - name: Render manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ARGS=(
+            template
+            "${{ inputs.release }}"
+            "${{ inputs.chart }}"
+            --namespace "${{ inputs.namespace }}"
+            --set-string "image.repository=${{ inputs.image_repository }}"
+            --set-string "image.tag=${{ inputs.image_tag }}"
+          )
+
+          if [[ -n "${{ inputs.values }}" ]]; then
+            ARGS+=(-f "${{ inputs.values }}")
+          fi
+
+          helm "${ARGS[@]}" > rendered-manifests.yaml
+          test -s rendered-manifests.yaml
+
+      - name: Validate rendered manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl apply \
+            --dry-run=server \
+            --namespace "${{ inputs.namespace }}" \
+            -f rendered-manifests.yaml
+
+      - name: Capture current release revision
+        id: previous
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          REVISION="$(
+            helm history "${{ inputs.release }}" \
+              --namespace "${{ inputs.namespace }}" \
+              --max 1 \
+              --output json 2>/dev/null |
+            jq -r '.[0].revision // empty'
+          )"
+
+          echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upgrade release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ARGS=(
+            upgrade
+            --install
+            "${{ inputs.release }}"
+            "${{ inputs.chart }}"
+            --namespace "${{ inputs.namespace }}"
+            --atomic
+            --wait
+            --timeout "${{ inputs.timeout }}"
+            --history-max "${{ inputs.history_max }}"
+            --set-string "image.repository=${{ inputs.image_repository }}"
+            --set-string "image.tag=${{ inputs.image_tag }}"
+          )
+
+          if [[ "${{ inputs.create_namespace }}" == "true" ]]; then
+            ARGS+=(--create-namespace)
+          fi
+
+          if [[ -n "${{ inputs.values }}" ]]; then
+            ARGS+=(-f "${{ inputs.values }}")
+          fi
+
+          helm "${ARGS[@]}"
+
+      - name: Verify release status
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          STATUS="$(
+            helm status "${{ inputs.release }}" \
+              --namespace "${{ inputs.namespace }}" \
+              --output json |
+            jq -r '.info.status'
+          )"
+
+          if [[ "$STATUS" != "deployed" ]]; then
+            echo "::error::Helm release status is ${STATUS}"
+            exit 1
+          fi
+
+      - name: Export release metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm list \
+            --namespace "${{ inputs.namespace }}" \
+            --filter "^${{ inputs.release }}$"
+
+          helm history \
+            "${{ inputs.release }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --max 5
+
+      - name: Roll back release
+        if: failure() && steps.previous.outputs.revision != ''
+        shell: bash
+        run: |
+          set +e
+
+          helm rollback \
+            "${{ inputs.release }}" \
+            "${{ steps.previous.outputs.revision }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --wait \
+            --timeout "${{ inputs.timeout }}"

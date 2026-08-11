@@ -36,10 +36,17 @@ jobs:
             ".github/workflows/reusable-docker-build.yml"
             ".github/workflows/reusable-container-security.yml"
             ".github/workflows/reusable-kubernetes-deploy.yml"
+            ".github/workflows/reusable-helm-release.yml"
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
             "examples/github-actions/kubernetes-delivery.yml"
             "templates/kubernetes/production-deployment.yml"
+            "examples/github-actions/helm-release.yml"
+            "templates/helm/platform-app/Chart.yaml"
+            "templates/helm/platform-app/values.yaml"
+            "templates/helm/platform-app/templates/deployment.yaml"
+            "templates/helm/platform-app/templates/service.yaml"
+            "templates/helm/platform-app/templates/_helpers.tpl"
           )
 
           for file in "${required_files[@]}"; do
@@ -61,5 +68,6 @@ jobs:
 
       - name: Run actionlint
         uses: docker://rhysd/actionlint:latest
+
 
 
