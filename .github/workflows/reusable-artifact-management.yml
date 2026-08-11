@@ -1,0 +1,201 @@
+﻿name: Reusable Artifact Management
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Logical artifact name
+        required: true
+        type: string
+
+      source_path:
+        description: File or directory to package
+        required: true
+        type: string
+
+      retention_days:
+        description: Artifact retention period
+        required: false
+        type: number
+        default: 30
+
+      compression_level:
+        description: Compression level from 0 to 9
+        required: false
+        type: number
+        default: 9
+
+    outputs:
+      artifact_name:
+        description: Uploaded artifact name
+        value: ${{ jobs.package.outputs.artifact_name }}
+
+      archive_name:
+        description: Generated archive filename
+        value: ${{ jobs.package.outputs.archive_name }}
+
+      sha256:
+        description: SHA256 checksum of generated archive
+        value: ${{ jobs.package.outputs.sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package and verify artifact
+    runs-on: ubuntu-latest
+
+    outputs:
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+      archive_name: ${{ steps.metadata.outputs.archive_name }}
+      sha256: ${{ steps.checksum.outputs.sha256 }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate source path
+        shell: bash
+        env:
+          SOURCE_PATH: ${{ inputs.source_path }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! -e "$SOURCE_PATH" ]]; then
+            echo "::error::Artifact source path does not exist: $SOURCE_PATH"
+            exit 1
+          fi
+
+      - name: Generate artifact metadata
+        id: metadata
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -Eeuo pipefail
+
+          SAFE_NAME="$(
+            printf '%s' "$ARTIFACT_NAME" |
+            tr '[:upper:]' '[:lower:]' |
+            tr -cs 'a-z0-9._-' '-'
+          )"
+
+          SAFE_NAME="${SAFE_NAME#-}"
+          SAFE_NAME="${SAFE_NAME%-}"
+
+          if [[ -z "$SAFE_NAME" ]]; then
+            echo "::error::Artifact name resolves to an empty value"
+            exit 1
+          fi
+
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+          ARCHIVE_NAME="${SAFE_NAME}-${SHORT_SHA}.tar.gz"
+
+          echo "artifact_name=${SAFE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "archive_name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create deterministic archive
+        shell: bash
+        env:
+          SOURCE_PATH: ${{ inputs.source_path }}
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+          COMPRESSION_LEVEL: ${{ inputs.compression_level }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p artifact-output
+
+          SOURCE_PARENT="$(dirname "$SOURCE_PATH")"
+          SOURCE_BASENAME="$(basename "$SOURCE_PATH")"
+
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -C "$SOURCE_PARENT" \
+            -cf - \
+            "$SOURCE_BASENAME" |
+          gzip "-${COMPRESSION_LEVEL}" -n > "artifact-output/${ARCHIVE_NAME}"
+
+      - name: Generate checksum
+        id: checksum
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+        run: |
+          set -Eeuo pipefail
+
+          cd artifact-output
+
+          sha256sum "$ARCHIVE_NAME" > "${ARCHIVE_NAME}.sha256"
+
+          SHA256="$(cut -d ' ' -f 1 "${ARCHIVE_NAME}.sha256")"
+
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate artifact manifest
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          set -Eeuo pipefail
+
+          jq -n \
+            --arg artifact "$ARTIFACT_NAME" \
+            --arg archive "$ARCHIVE_NAME" \
+            --arg sha256 "$SHA256" \
+            --arg commit "$GITHUB_SHA" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow "$GITHUB_WORKFLOW" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            '{
+              artifact: $artifact,
+              archive: $archive,
+              sha256: $sha256,
+              commit: $commit,
+              repository: $repository,
+              workflow: $workflow,
+              run_id: $run_id
+            }' > artifact-output/manifest.json
+
+      - name: Verify artifact integrity
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ steps.metadata.outputs.archive_name }}
+        run: |
+          set -Eeuo pipefail
+
+          cd artifact-output
+
+          sha256sum --check "${ARCHIVE_NAME}.sha256"
+
+          tar -tzf "$ARCHIVE_NAME" > /dev/null
+
+          jq empty manifest.json
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: artifact-output/
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: error
+
+      - name: Write artifact summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Artifact"
+            echo
+            echo "- Name: \`${{ steps.metadata.outputs.artifact_name }}\`"
+            echo "- Archive: \`${{ steps.metadata.outputs.archive_name }}\`"
+            echo "- SHA256: \`${{ steps.checksum.outputs.sha256 }}\`"
+            echo "- Retention: \`${{ inputs.retention_days }} days\`"
+          } >> "$GITHUB_STEP_SUMMARY"

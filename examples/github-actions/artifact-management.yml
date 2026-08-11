@@ -1,0 +1,13 @@
+﻿name: Artifact Management
+
+on:
+  workflow_dispatch:
+
+jobs:
+  artifact:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-artifact-management.yml@main
+    with:
+      artifact_name: platform-cicd-toolkit
+      source_path: templates
+      retention_days: 30
+      compression_level: 9
