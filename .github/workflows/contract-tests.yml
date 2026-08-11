@@ -1,0 +1,186 @@
+﻿name: Workflow Contract Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+      - "templates/**"
+      - "tests/**"
+
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "templates/**"
+      - "tests/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    name: Reusable Docker build contract
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      registry: ghcr.io
+      image_name: contract-test/platform-cicd-toolkit
+      context: tests/fixtures/container
+      dockerfile: tests/fixtures/container/Dockerfile
+      platforms: linux/amd64
+      push: false
+
+  verify-docker-outputs:
+    name: Verify Docker workflow outputs
+    needs: docker-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify reusable workflow contract
+        shell: bash
+        env:
+          IMAGE: ${{ needs.docker-build.outputs.image }}
+          IMMUTABLE_TAG: ${{ needs.docker-build.outputs.immutable_tag }}
+        run: |
+          set -Eeuo pipefail
+
+          test "$IMAGE" = "ghcr.io/contract-test/platform-cicd-toolkit"
+
+          if [[ ! "$IMMUTABLE_TAG" =~ ^ghcr\.io/contract-test/platform-cicd-toolkit:sha-[a-f0-9]{40}$ ]]; then
+            echo "::error::Unexpected immutable tag: $IMMUTABLE_TAG"
+            exit 1
+          fi
+
+  artifact:
+    name: Reusable artifact contract
+    uses: ./.github/workflows/reusable-artifact-management.yml
+    with:
+      artifact_name: contract-test
+      source_path: tests/fixtures/artifact
+      retention_days: 1
+      compression_level: 9
+
+  verify-artifact-outputs:
+    name: Verify artifact workflow outputs
+    needs: artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify reusable workflow contract
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ needs.artifact.outputs.artifact_name }}
+          ARCHIVE_NAME: ${{ needs.artifact.outputs.archive_name }}
+          SHA256: ${{ needs.artifact.outputs.sha256 }}
+        run: |
+          set -Eeuo pipefail
+
+          test "$ARTIFACT_NAME" = "contract-test"
+
+          if [[ ! "$ARCHIVE_NAME" =~ ^contract-test-[a-f0-9]{12}\.tar\.gz$ ]]; then
+            echo "::error::Unexpected archive name: $ARCHIVE_NAME"
+            exit 1
+          fi
+
+          if [[ ! "$SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Invalid SHA256 output"
+            exit 1
+          fi
+
+  helm-render:
+    name: Helm rendering contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Render chart
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm lint templates/helm/platform-app
+
+          helm template \
+            contract \
+            templates/helm/platform-app \
+            --namespace contract \
+            --set-string image.repository=ghcr.io/example/platform-app \
+            --set-string image.tag=sha-contract \
+            > rendered.yaml
+
+          grep -q 'image: "ghcr.io/example/platform-app:sha-contract"' rendered.yaml
+
+      - name: Validate rendered manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/work" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict \
+            -summary \
+            /work/rendered.yaml
+
+  gitops-render:
+    name: GitOps overlay contracts
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        environment:
+          - development
+          - staging
+          - production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Kustomize
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          VERSION="5.7.1"
+
+          curl --fail --silent --show-error --location \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${VERSION}/kustomize_v${VERSION}_linux_amd64.tar.gz" \
+            --output kustomize.tar.gz
+
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+
+      - name: Render environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kustomize build \
+            "templates/gitops/overlays/${{ matrix.environment }}" \
+            > rendered.yaml
+
+          test -s rendered.yaml
+
+          grep -q "namespace: ${{ matrix.environment }}" rendered.yaml
+
+      - name: Validate environment schema
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/work" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict \
+            -summary \
+            /work/rendered.yaml

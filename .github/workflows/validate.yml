@@ -45,6 +45,7 @@ jobs:
             ".github/workflows/reusable-gitops-promotion.yml"
             ".github/workflows/reusable-platform-delivery.yml"
             ".github/workflows/reusable-supply-chain-security.yml"
+            ".github/workflows/contract-tests.yml"
 
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
@@ -73,6 +74,9 @@ jobs:
             "templates/gitops/overlays/staging/kustomization.yaml"
             "templates/gitops/overlays/production/kustomization.yaml"
             "templates/gitops/argocd-application.yaml"
+            "tests/fixtures/container/Dockerfile"
+            "tests/fixtures/container/healthcheck.sh"
+            "tests/fixtures/artifact/payload.txt"
             "templates/gitlab-ci/components/container-build.yml"
             "templates/gitlab-ci/components/container-security.yml"
             "templates/gitlab-ci/components/kubernetes-deploy.yml"
@@ -300,5 +304,6 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 
 
