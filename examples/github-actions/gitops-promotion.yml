@@ -1,0 +1,28 @@
+﻿name: GitOps Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+      digest:
+        description: Immutable sha256 image digest
+        required: true
+        type: string
+
+jobs:
+  promote:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-gitops-promotion.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+      overlay_path: templates/gitops/overlays/${{ inputs.environment }}
+      image_name: ghcr.io/example/platform-app
+      image_digest: ${{ inputs.digest }}
+      target_branch: main

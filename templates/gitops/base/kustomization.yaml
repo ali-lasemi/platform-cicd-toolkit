@@ -1,0 +1,7 @@
+﻿resources:
+  - deployment.yaml
+
+images:
+  - name: ghcr.io/example/platform-app
+    newName: ghcr.io/example/platform-app
+    newTag: initial

@@ -1,0 +1,13 @@
+﻿resources:
+  - ../../base
+
+namespace: staging
+
+replicas:
+  - name: platform-app
+    count: 2
+
+images:
+  - name: ghcr.io/example/platform-app
+    newName: ghcr.io/example/platform-app
+    newTag: initial

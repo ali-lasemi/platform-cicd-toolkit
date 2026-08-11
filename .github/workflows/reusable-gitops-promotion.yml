@@ -1,0 +1,198 @@
+﻿name: Reusable GitOps Promotion
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: string
+
+      overlay_path:
+        description: Kustomize overlay path
+        required: true
+        type: string
+
+      image_name:
+        description: Image name used in Kustomize
+        required: true
+        type: string
+
+      image_digest:
+        description: Immutable sha256 image digest
+        required: true
+        type: string
+
+      target_branch:
+        description: Git branch receiving the GitOps change
+        required: false
+        type: string
+        default: main
+
+      commit_message:
+        description: GitOps commit message
+        required: false
+        type: string
+        default: ""
+
+    outputs:
+      commit_sha:
+        description: GitOps commit SHA
+        value: ${{ jobs.promote.outputs.commit_sha }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gitops-${{ inputs.environment }}-${{ inputs.overlay_path }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: GitOps promotion
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Validate image digest
+        shell: bash
+        env:
+          DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Invalid immutable image digest"
+            exit 1
+          fi
+
+      - name: Validate overlay path
+        shell: bash
+        env:
+          OVERLAY: ${{ inputs.overlay_path }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! -f "$OVERLAY/kustomization.yaml" ]]; then
+            echo "::error::Missing kustomization.yaml in $OVERLAY"
+            exit 1
+          fi
+
+      - name: Install Kustomize
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          VERSION="5.7.1"
+
+          curl --fail --silent --show-error --location \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${VERSION}/kustomize_v${VERSION}_linux_amd64.tar.gz" \
+            --output kustomize.tar.gz
+
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+
+      - name: Update immutable image reference
+        shell: bash
+        env:
+          OVERLAY: ${{ inputs.overlay_path }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -Eeuo pipefail
+
+          cd "$OVERLAY"
+
+          kustomize edit set image "${IMAGE_NAME}=${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Render GitOps manifests
+        shell: bash
+        env:
+          OVERLAY: ${{ inputs.overlay_path }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p gitops-validation
+
+          kustomize build "$OVERLAY" > gitops-validation/rendered.yaml
+
+          test -s gitops-validation/rendered.yaml
+
+      - name: Validate Kubernetes manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/work" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict \
+            -summary \
+            /work/gitops-validation/rendered.yaml
+
+      - name: Detect GitOps changes
+        id: changes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit GitOps promotion
+        id: commit
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          MESSAGE: ${{ inputs.commit_message }}
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          COMMIT_MESSAGE="$MESSAGE"
+
+          if [[ -z "$COMMIT_MESSAGE" ]]; then
+            COMMIT_MESSAGE="chore(gitops): promote ${{ inputs.environment }} to ${{ inputs.image_digest }}"
+          fi
+
+          git add "${{ inputs.overlay_path }}/kustomization.yaml"
+          git commit -m "$COMMIT_MESSAGE"
+          git push origin "HEAD:${{ inputs.target_branch }}"
+
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Export unchanged commit
+        if: steps.changes.outputs.changed == 'false'
+        id: unchanged
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "No GitOps change required."
+
+      - name: Write GitOps summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## GitOps Promotion"
+            echo
+            echo "- Environment: \`${{ inputs.environment }}\`"
+            echo "- Overlay: \`${{ inputs.overlay_path }}\`"
+            echo "- Image: \`${{ inputs.image_name }}@${{ inputs.image_digest }}\`"
+            echo "- Branch: \`${{ inputs.target_branch }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

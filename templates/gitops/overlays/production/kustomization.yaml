@@ -1,0 +1,13 @@
+﻿resources:
+  - ../../base
+
+namespace: production
+
+replicas:
+  - name: platform-app
+    count: 4
+
+images:
+  - name: ghcr.io/example/platform-app
+    newName: ghcr.io/example/platform-app
+    newTag: initial
