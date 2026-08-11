@@ -116,6 +116,46 @@ jobs:
             exit 1
           fi
 
+  action-pinning:
+    name: Immutable action references
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Reject mutable action references
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          import pathlib
+          import re
+
+          pattern = re.compile(
+              r'^\s*uses:\s*(?!\./)(?!docker://)([^@\s]+)@([^\s#]+)',
+              re.MULTILINE,
+          )
+
+          failures = []
+
+          for path in pathlib.Path(".github/workflows").glob("*.y*ml"):
+              text = path.read_text(encoding="utf-8-sig")
+
+              for match in pattern.finditer(text):
+                  action = match.group(1)
+                  ref = match.group(2)
+
+                  if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                      failures.append(
+                          f"{path}: {action}@{ref} is not pinned to a full commit SHA"
+                      )
+
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY
+
   actionlint:
     name: GitHub Actions validation
     runs-on: ubuntu-latest
@@ -304,6 +344,7 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 
 
 
