@@ -1,0 +1,153 @@
+﻿name: Reusable Container Security
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Container image reference to scan
+        required: true
+        type: string
+
+      severity:
+        description: Vulnerability severities to evaluate
+        required: false
+        type: string
+        default: CRITICAL,HIGH
+
+      ignore_unfixed:
+        description: Ignore vulnerabilities without available fixes
+        required: false
+        type: boolean
+        default: true
+
+      scan_secrets:
+        description: Scan repository history and files for secrets
+        required: false
+        type: boolean
+        default: true
+
+      generate_sbom:
+        description: Generate SPDX JSON SBOM
+        required: false
+        type: boolean
+        default: true
+
+    outputs:
+      sbom_artifact:
+        description: Generated SBOM artifact name
+        value: ${{ jobs.security.outputs.sbom_artifact }}
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Validate container security
+    runs-on: ubuntu-latest
+
+    outputs:
+      sbom_artifact: ${{ steps.outputs.outputs.sbom_artifact }}
+
+    steps:
+      - name: Checkout repository
+        if: inputs.scan_secrets
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create security results directory
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p security-results
+
+      - name: Scan image vulnerabilities
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+          SEVERITY: ${{ inputs.severity }}
+          IGNORE_UNFIXED: ${{ inputs.ignore_unfixed }}
+        run: |
+          set -Eeuo pipefail
+
+          EXTRA_ARGS=()
+
+          if [[ "$IGNORE_UNFIXED" == "true" ]]; then
+            EXTRA_ARGS+=(--ignore-unfixed)
+          fi
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/security-results:/results" \
+            aquasec/trivy:0.70.0 \
+            image \
+            --exit-code 1 \
+            --severity "$SEVERITY" \
+            "${EXTRA_ARGS[@]}" \
+            --format sarif \
+            --output /results/trivy.sarif \
+            "$IMAGE"
+
+      - name: Generate human-readable vulnerability report
+        if: always()
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+          SEVERITY: ${{ inputs.severity }}
+        run: |
+          set +e
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.70.0 \
+            image \
+            --severity "$SEVERITY" \
+            "$IMAGE"
+
+      - name: Scan repository for secrets
+        if: inputs.scan_secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/repo" \
+            zricethezav/gitleaks:v8.30.1 \
+            detect \
+            --source /repo \
+            --no-banner \
+            --redact \
+            --report-format json \
+            --report-path /repo/security-results/gitleaks.json
+
+      - name: Generate SBOM
+        if: inputs.generate_sbom
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/security-results:/results" \
+            anchore/syft:v1.50.0 \
+            "$IMAGE" \
+            -o spdx-json=/results/sbom.spdx.json
+
+      - name: Export workflow outputs
+        id: outputs
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "sbom_artifact=container-security-results" >> "$GITHUB_OUTPUT"
+
+      - name: Upload security artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: container-security-results
+          path: security-results/
+          if-no-files-found: warn
+          retention-days: 30

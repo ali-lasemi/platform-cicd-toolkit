@@ -34,7 +34,9 @@ jobs:
             "CHANGELOG.md"
             "LICENSE"
             ".github/workflows/reusable-docker-build.yml"
+            ".github/workflows/reusable-container-security.yml"
             "examples/github-actions/docker-build.yml"
+            "examples/github-actions/container-security.yml"
           )
 
           for file in "${required_files[@]}"; do
@@ -56,3 +58,4 @@ jobs:
 
       - name: Run actionlint
         uses: docker://rhysd/actionlint:latest
+

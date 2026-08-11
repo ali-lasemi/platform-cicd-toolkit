@@ -1,0 +1,19 @@
+﻿name: Container Security Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable container image reference
+        required: true
+        type: string
+
+jobs:
+  security:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-container-security.yml@main
+    with:
+      image: ${{ inputs.image }}
+      severity: CRITICAL,HIGH
+      ignore_unfixed: true
+      scan_secrets: true
+      generate_sbom: true
