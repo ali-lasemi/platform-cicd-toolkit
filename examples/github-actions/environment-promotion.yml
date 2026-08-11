@@ -1,0 +1,39 @@
+﻿name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_environment:
+        description: Source environment
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+
+      target_environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+jobs:
+  promote:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-environment-promotion.yml@main
+    with:
+      source_environment: ${{ inputs.source_environment }}
+      target_environment: ${{ inputs.target_environment }}
+      image: ${{ inputs.image }}
+      namespace: ${{ inputs.target_environment }}
+      deployment: platform-app
+      container: application
+      rollout_timeout: 300s
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}

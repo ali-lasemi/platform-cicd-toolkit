@@ -37,11 +37,13 @@ jobs:
             ".github/workflows/reusable-container-security.yml"
             ".github/workflows/reusable-kubernetes-deploy.yml"
             ".github/workflows/reusable-helm-release.yml"
+            ".github/workflows/reusable-environment-promotion.yml"
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
             "examples/github-actions/kubernetes-delivery.yml"
             "templates/kubernetes/production-deployment.yml"
             "examples/github-actions/helm-release.yml"
+            "examples/github-actions/environment-promotion.yml"
             "templates/helm/platform-app/Chart.yaml"
             "templates/helm/platform-app/values.yaml"
             "templates/helm/platform-app/templates/deployment.yaml"
@@ -68,6 +70,7 @@ jobs:
 
       - name: Run actionlint
         uses: docker://rhysd/actionlint:latest
+
 
 
 
