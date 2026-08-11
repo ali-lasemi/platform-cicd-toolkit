@@ -1,0 +1,31 @@
+﻿name: Container CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-docker-build.yml@main
+    with:
+      registry: ghcr.io
+      image_name: ${{ github.repository }}
+      push: false
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-docker-build.yml@main
+    with:
+      registry: ghcr.io
+      registry_username: ${{ github.actor }}
+      image_name: ${{ github.repository }}
+      push: true
+    secrets:
+      registry_password: ${{ secrets.GITHUB_TOKEN }}
