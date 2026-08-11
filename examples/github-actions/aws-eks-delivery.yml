@@ -1,0 +1,23 @@
+﻿name: AWS EKS Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-aws-eks-delivery.yml@main
+    with:
+      environment: production
+      aws_region: eu-central-1
+      role_arn: arn:aws:iam::123456789012:role/github-platform-delivery
+      cluster_name: production-platform
+      namespace: production
+      deployment: platform-app
+      container: application
+      image: ${{ inputs.image }}
+      rollout_timeout: 300s

@@ -38,6 +38,7 @@ jobs:
             "docs/architecture.md"
 
             ".github/workflows/reusable-docker-build.yml"
+            ".github/workflows/reusable-aws-eks-delivery.yml"
             ".github/workflows/reusable-container-security.yml"
             ".github/workflows/reusable-kubernetes-canary.yml"
             ".github/workflows/reusable-kubernetes-blue-green.yml"
@@ -52,6 +53,7 @@ jobs:
             ".github/workflows/contract-tests.yml"
 
             "examples/github-actions/docker-build.yml"
+            "examples/github-actions/aws-eks-delivery.yml"
             "examples/github-actions/container-security.yml"
             "examples/github-actions/kubernetes-canary.yml"
             "examples/github-actions/kubernetes-blue-green.yml"
@@ -351,6 +353,7 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 
 
 
