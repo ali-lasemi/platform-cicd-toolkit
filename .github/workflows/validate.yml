@@ -49,6 +49,7 @@ jobs:
             ".github/workflows/reusable-release.yml"
             ".github/workflows/reusable-gitops-promotion.yml"
             ".github/workflows/reusable-platform-delivery.yml"
+            ".github/workflows/reusable-policy-validation.yml"
             ".github/workflows/reusable-supply-chain-security.yml"
             ".github/workflows/contract-tests.yml"
 
@@ -64,6 +65,7 @@ jobs:
             "examples/github-actions/release.yml"
             "examples/github-actions/gitops-promotion.yml"
             "examples/github-actions/platform-delivery.yml"
+            "examples/github-actions/policy-validation.yml"
             "examples/github-actions/supply-chain-security.yml"
 
             "templates/kubernetes/canary-deployment.yml"
@@ -353,11 +355,41 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+  policy:
+    name: Kubernetes policy validation
+    runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
+      - name: Validate compliant fixture
+        shell: bash
+        run: |
+          set -Eeuo pipefail
 
+          docker run --rm \
+            -v "${PWD}:/project" \
+            -w /project \
+            openpolicyagent/conftest:v0.62.0 \
+            test \
+            --policy policies/kubernetes \
+            tests/policy/compliant-deployment.yml
 
+      - name: Verify non-compliant fixture is rejected
+        shell: bash
+        run: |
+          set -Eeuo pipefail
 
+          if docker run --rm \
+            -v "${PWD}:/project" \
+            -w /project \
+            openpolicyagent/conftest:v0.62.0 \
+            test \
+            --policy policies/kubernetes \
+            tests/policy/noncompliant-deployment.yml; then
 
-
+            echo "::error::Non-compliant Kubernetes fixture unexpectedly passed policy validation"
+            exit 1
+          fi
 

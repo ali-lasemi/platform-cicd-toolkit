@@ -1,0 +1,10 @@
+﻿name: Kubernetes Policy Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  policy:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-policy-validation.yml@main
+    with:
+      manifests: templates/kubernetes/production-deployment.yml

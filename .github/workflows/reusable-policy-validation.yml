@@ -1,0 +1,36 @@
+﻿name: Reusable Kubernetes Policy Validation
+
+on:
+  workflow_call:
+    inputs:
+      manifests:
+        description: File or directory containing Kubernetes manifests
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Kubernetes policy validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Validate Kubernetes policies
+        shell: bash
+        env:
+          MANIFESTS: ${{ inputs.manifests }}
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/project" \
+            -w /project \
+            openpolicyagent/conftest:v0.62.0 \
+            test \
+            --policy policies/kubernetes \
+            "$MANIFESTS"
