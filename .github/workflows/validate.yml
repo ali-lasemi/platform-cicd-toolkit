@@ -36,6 +36,12 @@ jobs:
             "SECURITY.md"
             "CONTRIBUTING.md"
             "docs/architecture.md"
+            ".github/dependabot.yml"
+            ".github/CODEOWNERS"
+            ".github/pull_request_template.md"
+            ".github/ISSUE_TEMPLATE/bug.yml"
+            ".github/ISSUE_TEMPLATE/feature.yml"
+            ".github/ISSUE_TEMPLATE/config.yml"
 
             ".github/workflows/reusable-docker-build.yml"
             ".github/workflows/reusable-aws-eks-delivery.yml"
@@ -395,5 +401,6 @@ jobs:
             echo "::error::Non-compliant Kubernetes fixture unexpectedly passed policy validation"
             exit 1
           fi
+
 
 

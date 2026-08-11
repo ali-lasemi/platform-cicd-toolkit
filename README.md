@@ -116,3 +116,18 @@ docs/
 ## License
 
 MIT
+
+## Repository Governance
+
+The repository includes:
+
+- CODEOWNERS
+- Dependabot automation
+- pull request templates
+- structured issue templates
+- security reporting guidance
+- contribution requirements
+- immutable third-party Action enforcement
+- executable workflow contract tests
+
+Changes to delivery logic are expected to preserve least privilege, immutable artifacts, explicit verification, and rollback behavior.

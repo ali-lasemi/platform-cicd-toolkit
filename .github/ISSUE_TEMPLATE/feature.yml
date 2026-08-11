@@ -1,0 +1,27 @@
+﻿name: Feature request
+description: Propose a new reusable platform capability.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Platform problem
+      description: What delivery or platform problem should this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the desired reusable workflow, template, or platform primitive.
+    validations:
+      required: true
+
+  - type: textarea
+    id: production
+    attributes:
+      label: Production considerations
+      description: Describe security, rollback, observability, failure handling, and compatibility requirements.

@@ -1,0 +1,34 @@
+﻿name: Bug report
+description: Report a defect in a workflow, template, policy, or example.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest reliable reproduction.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include CI platform, Kubernetes version, runner, and relevant tool versions.

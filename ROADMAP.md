@@ -29,12 +29,15 @@
 - [x] Architecture documentation
 - [x] Security policy
 
+- [x] Repository governance and dependency automation
+
 ## Next
 
 - [ ] AWS OIDC authentication
 - [ ] Azure OIDC authentication
 - [ ] GCP workload identity
-- [ ] Argo Rollouts
-- [ ] Policy-as-code
+- [x] Argo Rollouts
+- [x] Policy-as-code
 - [ ] Backstage integration
 - [ ] OpenTelemetry delivery telemetry
+

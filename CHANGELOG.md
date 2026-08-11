@@ -4,6 +4,11 @@
 
 ### Added
 
+- repository governance automation
+- Dependabot configuration
+- CODEOWNERS
+- pull request and issue templates
+
 - reusable Docker build workflow
 - immutable image publishing
 - container vulnerability scanning
@@ -28,3 +33,4 @@
 - immutable GitHub Action pinning
 - architecture documentation
 - security policy
+
