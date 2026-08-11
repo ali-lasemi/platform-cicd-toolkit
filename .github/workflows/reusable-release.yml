@@ -147,7 +147,7 @@ jobs:
 
           (
             cd release-assets
-            sha256sum * > SHA256SUMS
+            sha256sum -- ./* > SHA256SUMS
           )
 
       - name: Create Git tag
@@ -226,3 +226,4 @@ jobs:
             echo "- URL: ${{ steps.release.outputs.url }}"
             echo "- Commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
