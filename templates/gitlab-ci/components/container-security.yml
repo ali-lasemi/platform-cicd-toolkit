@@ -1,0 +1,53 @@
+﻿spec:
+  inputs:
+    stage:
+      default: security
+    severity:
+      default: HIGH,CRITICAL
+    ignore_unfixed:
+      type: boolean
+      default: true
+---
+container-security:
+  stage: $[[ inputs.stage ]]
+
+  image:
+    name: aquasec/trivy:0.70.0
+    entrypoint:
+      - ""
+
+  script:
+    - set -eu
+    - test -n "${IMAGE:-}"
+    - |
+      EXTRA_ARGS=""
+
+      if [ "$[[ inputs.ignore_unfixed ]]" = "true" ]; then
+        EXTRA_ARGS="--ignore-unfixed"
+      fi
+
+      trivy image \
+        --exit-code 1 \
+        --severity "$[[ inputs.severity ]]" \
+        ${EXTRA_ARGS} \
+        --format sarif \
+        --output trivy.sarif \
+        "${IMAGE}"
+    - |
+      trivy image \
+        --severity "$[[ inputs.severity ]]" \
+        "${IMAGE}" || true
+
+  artifacts:
+    when: always
+    paths:
+      - trivy.sarif
+    expire_in: 30 days
+
+  needs:
+    - job: container-build
+      artifacts: true
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'

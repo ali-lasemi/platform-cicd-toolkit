@@ -1,0 +1,57 @@
+﻿spec:
+  inputs:
+    stage:
+      default: rollback
+    environment:
+      default: staging
+    namespace:
+      default: staging
+    deployment:
+      default: application
+    container:
+      default: application
+    rollout_timeout:
+      default: 300s
+---
+kubernetes-rollback:
+  stage: $[[ inputs.stage ]]
+
+  image:
+    name: bitnami/kubectl:1.34.1
+    entrypoint:
+      - ""
+
+  environment:
+    name: $[[ inputs.environment ]]
+
+  resource_group: $[[ inputs.environment ]]
+
+  before_script:
+    - set -eu
+    - test -n "${KUBECONFIG_B64:-}"
+    - mkdir -p "$HOME/.kube"
+    - printf '%s' "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+    - chmod 600 "$HOME/.kube/config"
+
+  script:
+    - set -eu
+    - test -n "${PREVIOUS_IMAGE:-}"
+    - |
+      kubectl set image \
+        deployment/"$[[ inputs.deployment ]]" \
+        "$[[ inputs.container ]]=${PREVIOUS_IMAGE}" \
+        --namespace "$[[ inputs.namespace ]]"
+    - |
+      kubectl rollout status \
+        deployment/"$[[ inputs.deployment ]]" \
+        --namespace "$[[ inputs.namespace ]]" \
+        --timeout "$[[ inputs.rollout_timeout ]]"
+
+  needs:
+    - job: kubernetes-deploy
+      artifacts: true
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: false

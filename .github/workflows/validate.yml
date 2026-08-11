@@ -73,6 +73,11 @@ jobs:
             "templates/gitops/overlays/staging/kustomization.yaml"
             "templates/gitops/overlays/production/kustomization.yaml"
             "templates/gitops/argocd-application.yaml"
+            "templates/gitlab-ci/components/container-build.yml"
+            "templates/gitlab-ci/components/container-security.yml"
+            "templates/gitlab-ci/components/kubernetes-deploy.yml"
+            "templates/gitlab-ci/components/kubernetes-rollback.yml"
+            "examples/gitlab-ci/platform-delivery.gitlab-ci.yml"
           )
 
           for file in "${required_files[@]}"; do
@@ -295,4 +300,5 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 

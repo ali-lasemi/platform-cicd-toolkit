@@ -1,0 +1,38 @@
+﻿stages:
+  - build
+  - security
+  - deploy
+  - rollback
+
+include:
+  - local: templates/gitlab-ci/components/container-build.yml
+    inputs:
+      stage: build
+      image_name: $CI_REGISTRY_IMAGE
+      dockerfile: Dockerfile
+      context: .
+      platforms: linux/amd64
+
+  - local: templates/gitlab-ci/components/container-security.yml
+    inputs:
+      stage: security
+      severity: HIGH,CRITICAL
+      ignore_unfixed: true
+
+  - local: templates/gitlab-ci/components/kubernetes-deploy.yml
+    inputs:
+      stage: deploy
+      environment: production
+      namespace: production
+      deployment: platform-app
+      container: application
+      rollout_timeout: 300s
+
+  - local: templates/gitlab-ci/components/kubernetes-rollback.yml
+    inputs:
+      stage: rollback
+      environment: production
+      namespace: production
+      deployment: platform-app
+      container: application
+      rollout_timeout: 300s
