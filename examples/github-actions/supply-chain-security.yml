@@ -1,0 +1,18 @@
+﻿name: Supply Chain Security
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+jobs:
+  supply_chain:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-supply-chain-security.yml@main
+    with:
+      image: ${{ inputs.image }}
+      sign: true
+      attest_provenance: true
+      attest_sbom: false
