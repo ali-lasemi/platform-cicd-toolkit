@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   structure:
-    name: Validate repository structure
+    name: Repository integrity
     runs-on: ubuntu-latest
 
     steps:
@@ -33,8 +33,10 @@ jobs:
             "ROADMAP.md"
             "CHANGELOG.md"
             "LICENSE"
+
             ".github/workflows/reusable-docker-build.yml"
             ".github/workflows/reusable-container-security.yml"
+            ".github/workflows/reusable-kubernetes-canary.yml"
             ".github/workflows/reusable-kubernetes-deploy.yml"
             ".github/workflows/reusable-helm-release.yml"
             ".github/workflows/reusable-environment-promotion.yml"
@@ -43,10 +45,11 @@ jobs:
             ".github/workflows/reusable-gitops-promotion.yml"
             ".github/workflows/reusable-platform-delivery.yml"
             ".github/workflows/reusable-supply-chain-security.yml"
+
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
+            "examples/github-actions/kubernetes-canary.yml"
             "examples/github-actions/kubernetes-delivery.yml"
-            "templates/kubernetes/production-deployment.yml"
             "examples/github-actions/helm-release.yml"
             "examples/github-actions/environment-promotion.yml"
             "examples/github-actions/artifact-management.yml"
@@ -54,17 +57,22 @@ jobs:
             "examples/github-actions/gitops-promotion.yml"
             "examples/github-actions/platform-delivery.yml"
             "examples/github-actions/supply-chain-security.yml"
+
+            "templates/kubernetes/canary-deployment.yml"
+            "templates/kubernetes/production-deployment.yml"
+
+            "templates/helm/platform-app/Chart.yaml"
+            "templates/helm/platform-app/values.yaml"
+            "templates/helm/platform-app/templates/deployment.yaml"
+            "templates/helm/platform-app/templates/service.yaml"
+            "templates/helm/platform-app/templates/_helpers.tpl"
+
             "templates/gitops/base/kustomization.yaml"
             "templates/gitops/base/deployment.yaml"
             "templates/gitops/overlays/development/kustomization.yaml"
             "templates/gitops/overlays/staging/kustomization.yaml"
             "templates/gitops/overlays/production/kustomization.yaml"
             "templates/gitops/argocd-application.yaml"
-            "templates/helm/platform-app/Chart.yaml"
-            "templates/helm/platform-app/values.yaml"
-            "templates/helm/platform-app/templates/deployment.yaml"
-            "templates/helm/platform-app/templates/service.yaml"
-            "templates/helm/platform-app/templates/_helpers.tpl"
           )
 
           for file in "${required_files[@]}"; do
@@ -73,11 +81,34 @@ jobs:
               exit 1
             fi
 
-            echo "validated: ${file}"
+            if [[ ! -s "$file" ]]; then
+              echo "::error file=${file}::Required file is empty"
+              exit 1
+            fi
           done
 
+      - name: Reject tracked empty files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          EMPTY_FILES="$(
+            git ls-files -z |
+            while IFS= read -r -d '' file; do
+              if [[ -f "$file" && ! -s "$file" ]]; then
+                printf '%s\n' "$file"
+              fi
+            done
+          )"
+
+          if [[ -n "$EMPTY_FILES" ]]; then
+            echo "::error::Tracked empty files detected:"
+            printf '%s\n' "$EMPTY_FILES"
+            exit 1
+          fi
+
   actionlint:
-    name: Validate GitHub Actions
+    name: GitHub Actions validation
     runs-on: ubuntu-latest
 
     steps:
@@ -87,11 +118,175 @@ jobs:
       - name: Run actionlint
         uses: docker://rhysd/actionlint:latest
 
+  yaml:
+    name: YAML validation
+    runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
+      - name: Validate YAML syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
 
+          python - <<'PY'
+          import pathlib
+          import yaml
 
+          roots = [
+              pathlib.Path(".github"),
+              pathlib.Path("templates"),
+              pathlib.Path("examples"),
+          ]
 
+          failures = []
 
+          for root in roots:
+              if not root.exists():
+                  continue
 
+              for path in root.rglob("*"):
+                  if path.suffix not in {".yml", ".yaml"}:
+                      continue
 
+                  try:
+                      with path.open("r", encoding="utf-8-sig") as handle:
+                          list(yaml.safe_load_all(handle))
+                  except Exception as exc:
+                      failures.append(f"{path}: {exc}")
+
+          if failures:
+              raise SystemExit("\n".join(failures))
+          PY
+
+  shellcheck:
+    name: Shell script validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          mapfile -t scripts < <(
+            find scripts \
+              -type f \
+              -name '*.sh' \
+              -size +0c \
+              -print 2>/dev/null
+          )
+
+          if (( ${#scripts[@]} == 0 )); then
+            echo "No standalone shell scripts to validate."
+            exit 0
+          fi
+
+          shellcheck "${scripts[@]}"
+
+  helm:
+    name: Helm chart validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm charts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          helm dependency update templates/helm/platform-app
+          helm lint templates/helm/platform-app
+
+          helm template \
+            platform-app \
+            templates/helm/platform-app \
+            --namespace production \
+            --set-string image.repository=ghcr.io/example/platform-app \
+            --set-string image.tag=sha-validation \
+            > /tmp/helm-rendered.yaml
+
+          test -s /tmp/helm-rendered.yaml
+
+  kubernetes:
+    name: Kubernetes schema validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate Kubernetes templates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/work" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict \
+            -summary \
+            /work/templates/kubernetes/canary-deployment.yml \
+            /work/templates/kubernetes/production-deployment.yml
+
+  gitops:
+    name: GitOps rendering validation
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        environment:
+          - development
+          - staging
+          - production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Kustomize
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          VERSION="5.7.1"
+
+          curl --fail --silent --show-error --location \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${VERSION}/kustomize_v${VERSION}_linux_amd64.tar.gz" \
+            --output kustomize.tar.gz
+
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+
+      - name: Render overlay
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kustomize build \
+            "templates/gitops/overlays/${{ matrix.environment }}" \
+            > rendered.yaml
+
+          test -s rendered.yaml
+
+      - name: Validate rendered overlay
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            -v "${PWD}:/work" \
+            ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict \
+            -summary \
+            /work/rendered.yaml
