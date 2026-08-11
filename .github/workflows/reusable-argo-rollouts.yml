@@ -1,0 +1,236 @@
+﻿name: Reusable Argo Rollouts Delivery
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name
+        required: true
+        type: string
+
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        type: string
+
+      rollout:
+        description: Argo Rollout resource name
+        required: true
+        type: string
+
+      container:
+        description: Container name inside the Rollout
+        required: true
+        type: string
+
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+      timeout:
+        description: Maximum rollout wait time
+        required: false
+        type: string
+        default: 10m
+
+      auto_promote:
+        description: Automatically promote paused rollout
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      kubeconfig:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: argo-rollouts-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.rollout }}
+  cancel-in-progress: false
+
+jobs:
+  rollout:
+    name: Progressive delivery
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Validate immutable image
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Argo Rollouts delivery requires an immutable sha256 image reference"
+            exit 1
+          fi
+
+      - name: Configure Kubernetes
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.kubeconfig }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+          kubectl cluster-info
+
+      - name: Verify Argo Rollouts authorization
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl auth can-i get rollouts.argoproj.io \
+            --namespace "${{ inputs.namespace }}" |
+          grep -qx yes
+
+          kubectl auth can-i patch rollouts.argoproj.io \
+            --namespace "${{ inputs.namespace }}" |
+          grep -qx yes
+
+      - name: Install Argo Rollouts CLI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          VERSION="v1.9.1"
+          EXPECTED_SHA256="466d93ccf767e975691359c6c9bb6750696e54c336d28ccd4d39e0f0519e8bf6"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "https://github.com/argoproj/argo-rollouts/releases/download/${VERSION}/kubectl-argo-rollouts-linux-amd64" \
+            --output kubectl-argo-rollouts
+
+          echo "${EXPECTED_SHA256}  kubectl-argo-rollouts" | sha256sum --check -
+
+          chmod 0755 kubectl-argo-rollouts
+          sudo install kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
+
+          kubectl-argo-rollouts version --client
+
+      - name: Capture previous image
+        id: previous
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          PREVIOUS_IMAGE="$(
+            kubectl get rollout "${{ inputs.rollout }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}"
+          )"
+
+          if [[ -z "$PREVIOUS_IMAGE" ]]; then
+            echo "::error::Unable to resolve previous rollout image"
+            exit 1
+          fi
+
+          echo "image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Update rollout image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl-argo-rollouts set image \
+            "${{ inputs.rollout }}" \
+            "${{ inputs.container }}=${{ inputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+      - name: Watch rollout progression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          timeout "${{ inputs.timeout }}" \
+            kubectl-argo-rollouts status \
+            "${{ inputs.rollout }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --watch=false || true
+
+      - name: Promote rollout
+        if: inputs.auto_promote
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl-argo-rollouts promote \
+            "${{ inputs.rollout }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --full
+
+      - name: Wait for healthy rollout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          timeout "${{ inputs.timeout }}" \
+            kubectl-argo-rollouts status \
+            "${{ inputs.rollout }}" \
+            --namespace "${{ inputs.namespace }}"
+
+      - name: Verify deployed image
+        shell: bash
+        env:
+          EXPECTED_IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+
+          DEPLOYED_IMAGE="$(
+            kubectl get rollout "${{ inputs.rollout }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}"
+          )"
+
+          if [[ "$DEPLOYED_IMAGE" != "$EXPECTED_IMAGE" ]]; then
+            echo "::error::Rollout image verification failed"
+            echo "Expected: $EXPECTED_IMAGE"
+            echo "Actual:   $DEPLOYED_IMAGE"
+            exit 1
+          fi
+
+      - name: Abort failed rollout
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          kubectl-argo-rollouts abort \
+            "${{ inputs.rollout }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          PREVIOUS_IMAGE="${{ steps.previous.outputs.image }}"
+
+          if [[ -n "$PREVIOUS_IMAGE" ]]; then
+            kubectl-argo-rollouts set image \
+              "${{ inputs.rollout }}" \
+              "${{ inputs.container }}=${PREVIOUS_IMAGE}" \
+              --namespace "${{ inputs.namespace }}"
+          fi
+
+      - name: Write rollout summary
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Argo Rollouts Delivery"
+            echo
+            echo "- Environment: \`${{ inputs.environment }}\`"
+            echo "- Namespace: \`${{ inputs.namespace }}\`"
+            echo "- Rollout: \`${{ inputs.rollout }}\`"
+            echo "- Image: \`${{ inputs.image }}\`"
+            echo "- Auto promotion: \`${{ inputs.auto_promote }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

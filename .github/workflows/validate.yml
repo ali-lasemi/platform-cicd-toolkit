@@ -46,6 +46,7 @@ jobs:
             ".github/workflows/reusable-helm-release.yml"
             ".github/workflows/reusable-environment-promotion.yml"
             ".github/workflows/reusable-artifact-management.yml"
+            ".github/workflows/reusable-argo-rollouts.yml"
             ".github/workflows/reusable-release.yml"
             ".github/workflows/reusable-gitops-promotion.yml"
             ".github/workflows/reusable-platform-delivery.yml"
@@ -62,6 +63,7 @@ jobs:
             "examples/github-actions/helm-release.yml"
             "examples/github-actions/environment-promotion.yml"
             "examples/github-actions/artifact-management.yml"
+            "examples/github-actions/argo-rollouts.yml"
             "examples/github-actions/release.yml"
             "examples/github-actions/gitops-promotion.yml"
             "examples/github-actions/platform-delivery.yml"
@@ -71,6 +73,7 @@ jobs:
             "templates/kubernetes/canary-deployment.yml"
             "templates/kubernetes/blue-green-deployment.yml"
             "templates/kubernetes/production-deployment.yml"
+            "templates/argo-rollouts/canary-rollout.yml"
 
             "templates/helm/platform-app/Chart.yaml"
             "templates/helm/platform-app/values.yaml"
@@ -392,4 +395,5 @@ jobs:
             echo "::error::Non-compliant Kubernetes fixture unexpectedly passed policy validation"
             exit 1
           fi
+
 

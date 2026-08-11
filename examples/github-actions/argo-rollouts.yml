@@ -1,0 +1,31 @@
+﻿name: Argo Rollouts Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+      auto_promote:
+        description: Automatically promote through pauses
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  rollout:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-argo-rollouts.yml@main
+
+    with:
+      environment: production
+      namespace: production
+      rollout: platform-app
+      container: application
+      image: ${{ inputs.image }}
+      timeout: 15m
+      auto_promote: ${{ inputs.auto_promote }}
+
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
