@@ -143,12 +143,17 @@ jobs:
 
           failures = []
 
+          helm_template_root = pathlib.Path("templates/helm")
+
           for root in roots:
               if not root.exists():
                   continue
 
               for path in root.rglob("*"):
                   if path.suffix not in {".yml", ".yaml"}:
+                      continue
+
+                  if helm_template_root in path.parents and "templates" in path.parts[path.parts.index("helm") + 2:]:
                       continue
 
                   try:
@@ -290,3 +295,4 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
