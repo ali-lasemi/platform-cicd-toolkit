@@ -37,6 +37,7 @@ jobs:
             ".github/workflows/reusable-docker-build.yml"
             ".github/workflows/reusable-container-security.yml"
             ".github/workflows/reusable-kubernetes-canary.yml"
+            ".github/workflows/reusable-kubernetes-blue-green.yml"
             ".github/workflows/reusable-kubernetes-deploy.yml"
             ".github/workflows/reusable-helm-release.yml"
             ".github/workflows/reusable-environment-promotion.yml"
@@ -50,6 +51,7 @@ jobs:
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
             "examples/github-actions/kubernetes-canary.yml"
+            "examples/github-actions/kubernetes-blue-green.yml"
             "examples/github-actions/kubernetes-delivery.yml"
             "examples/github-actions/helm-release.yml"
             "examples/github-actions/environment-promotion.yml"
@@ -60,6 +62,7 @@ jobs:
             "examples/github-actions/supply-chain-security.yml"
 
             "templates/kubernetes/canary-deployment.yml"
+            "templates/kubernetes/blue-green-deployment.yml"
             "templates/kubernetes/production-deployment.yml"
 
             "templates/helm/platform-app/Chart.yaml"
@@ -291,6 +294,7 @@ jobs:
             -strict \
             -summary \
             /work/templates/kubernetes/canary-deployment.yml \
+            /work/templates/kubernetes/blue-green-deployment.yml \
             /work/templates/kubernetes/production-deployment.yml
 
   gitops:
@@ -344,6 +348,7 @@ jobs:
             -strict \
             -summary \
             /work/rendered.yaml
+
 
 
 

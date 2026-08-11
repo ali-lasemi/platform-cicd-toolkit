@@ -1,0 +1,303 @@
+﻿name: Reusable Kubernetes Blue-Green Deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name
+        required: true
+        type: string
+
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        type: string
+
+      service:
+        description: Kubernetes Service used for traffic switching
+        required: true
+        type: string
+
+      application:
+        description: Application label value
+        required: true
+        type: string
+
+      container:
+        description: Container name
+        required: true
+        type: string
+
+      image:
+        description: Immutable container image including sha256 digest
+        required: true
+        type: string
+
+      replicas:
+        description: Replica count for inactive environment
+        required: false
+        type: number
+        default: 3
+
+      rollout_timeout:
+        description: kubectl rollout timeout
+        required: false
+        type: string
+        default: 300s
+
+      healthcheck_url:
+        description: Optional external healthcheck URL after traffic switch
+        required: false
+        type: string
+        default: ""
+
+    secrets:
+      kubeconfig:
+        required: true
+
+    outputs:
+      active_color:
+        description: Color receiving traffic after promotion
+        value: ${{ jobs.deploy.outputs.active_color }}
+
+      previous_color:
+        description: Color receiving traffic before promotion
+        value: ${{ jobs.deploy.outputs.previous_color }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blue-green-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Blue-green deployment
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    outputs:
+      active_color: ${{ steps.colors.outputs.inactive }}
+      previous_color: ${{ steps.colors.outputs.active }}
+
+    steps:
+      - name: Validate immutable image
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$IMAGE" =~ @sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Blue-green delivery requires an immutable sha256 image"
+            exit 1
+          fi
+
+      - name: Configure Kubernetes
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.kubeconfig }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+          kubectl version --client
+          kubectl auth can-i get deployments --namespace "${{ inputs.namespace }}" | grep -qx yes
+          kubectl auth can-i patch deployments --namespace "${{ inputs.namespace }}" | grep -qx yes
+          kubectl auth can-i get services --namespace "${{ inputs.namespace }}" | grep -qx yes
+          kubectl auth can-i patch services --namespace "${{ inputs.namespace }}" | grep -qx yes
+
+      - name: Resolve active and inactive colors
+        id: colors
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ACTIVE="$(
+            kubectl get service "${{ inputs.service }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.spec.selector.color}'
+          )"
+
+          case "$ACTIVE" in
+            blue)
+              INACTIVE="green"
+              ;;
+            green)
+              INACTIVE="blue"
+              ;;
+            *)
+              echo "::error::Service selector color must be blue or green"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "active=${ACTIVE}"
+            echo "inactive=${INACTIVE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Capture previous inactive image
+        id: previous
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DEPLOYMENT="${{ inputs.application }}-${{ steps.colors.outputs.inactive }}"
+
+          PREVIOUS_IMAGE="$(
+            kubectl get deployment "$DEPLOYMENT" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}"
+          )"
+
+          echo "image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy inactive color
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DEPLOYMENT="${{ inputs.application }}-${{ steps.colors.outputs.inactive }}"
+
+          kubectl scale deployment "$DEPLOYMENT" \
+            --namespace "${{ inputs.namespace }}" \
+            --replicas "${{ inputs.replicas }}"
+
+          kubectl set image \
+            deployment/"$DEPLOYMENT" \
+            "${{ inputs.container }}=${{ inputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          kubectl rollout status \
+            deployment/"$DEPLOYMENT" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"
+
+      - name: Verify inactive deployment health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DEPLOYMENT="${{ inputs.application }}-${{ steps.colors.outputs.inactive }}"
+
+          DESIRED="$(
+            kubectl get deployment "$DEPLOYMENT" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.spec.replicas}'
+          )"
+
+          AVAILABLE="$(
+            kubectl get deployment "$DEPLOYMENT" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.status.availableReplicas}'
+          )"
+
+          UPDATED="$(
+            kubectl get deployment "$DEPLOYMENT" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.status.updatedReplicas}'
+          )"
+
+          test "$AVAILABLE" = "$DESIRED"
+          test "$UPDATED" = "$DESIRED"
+
+      - name: Switch production traffic
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl patch service "${{ inputs.service }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --type merge \
+            --patch "{\"spec\":{\"selector\":{\"app\":\"${{ inputs.application }}\",\"color\":\"${{ steps.colors.outputs.inactive }}\"}}}"
+
+      - name: Verify traffic switch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ROUTED_COLOR="$(
+            kubectl get service "${{ inputs.service }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.spec.selector.color}'
+          )"
+
+          test "$ROUTED_COLOR" = "${{ steps.colors.outputs.inactive }}"
+
+          ENDPOINTS="$(
+            kubectl get endpoints "${{ inputs.service }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.subsets[*].addresses[*].ip}'
+          )"
+
+          if [[ -z "$ENDPOINTS" ]]; then
+            echo "::error::Service has no ready endpoints after traffic switch"
+            exit 1
+          fi
+
+      - name: Verify external health
+        if: inputs.healthcheck_url != ''
+        shell: bash
+        env:
+          HEALTHCHECK_URL: ${{ inputs.healthcheck_url }}
+        run: |
+          set -Eeuo pipefail
+
+          for _ in {1..10}; do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 10 \
+              "$HEALTHCHECK_URL" > /dev/null; then
+              exit 0
+            fi
+
+            sleep 6
+          done
+
+          echo "::error::External healthcheck failed after traffic switch"
+          exit 1
+
+      - name: Roll back traffic on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl patch service "${{ inputs.service }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --type merge \
+            --patch "{\"spec\":{\"selector\":{\"app\":\"${{ inputs.application }}\",\"color\":\"${{ steps.colors.outputs.active }}\"}}}"
+
+          PREVIOUS_IMAGE="${{ steps.previous.outputs.image }}"
+
+          if [[ -n "$PREVIOUS_IMAGE" ]]; then
+            DEPLOYMENT="${{ inputs.application }}-${{ steps.colors.outputs.inactive }}"
+
+            kubectl set image \
+              deployment/"$DEPLOYMENT" \
+              "${{ inputs.container }}=${PREVIOUS_IMAGE}" \
+              --namespace "${{ inputs.namespace }}" || true
+          fi
+
+      - name: Write deployment summary
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Blue-Green Delivery"
+            echo
+            echo "- Previous color: \`${{ steps.colors.outputs.active }}\`"
+            echo "- Target color: \`${{ steps.colors.outputs.inactive }}\`"
+            echo "- Image: \`${{ inputs.image }}\`"
+            echo "- Service: \`${{ inputs.service }}\`"
+            echo "- Namespace: \`${{ inputs.namespace }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

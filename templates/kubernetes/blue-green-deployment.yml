@@ -1,0 +1,109 @@
+﻿apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-app-blue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: platform-app
+      color: blue
+  template:
+    metadata:
+      labels:
+        app: platform-app
+        color: blue
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: application
+          image: ghcr.io/example/platform-app:initial
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-app-green
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: platform-app
+      color: green
+  template:
+    metadata:
+      labels:
+        app: platform-app
+        color: green
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: application
+          image: ghcr.io/example/platform-app:initial
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-app
+spec:
+  selector:
+    app: platform-app
+    color: blue
+  ports:
+    - port: 80
+      targetPort: 8080

@@ -1,0 +1,24 @@
+﻿name: Kubernetes Blue-Green Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference including sha256 digest
+        required: true
+        type: string
+
+jobs:
+  blue_green:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-kubernetes-blue-green.yml@main
+    with:
+      environment: production
+      namespace: production
+      service: platform-app
+      application: platform-app
+      container: application
+      image: ${{ inputs.image }}
+      replicas: 3
+      rollout_timeout: 300s
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
