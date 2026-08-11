@@ -248,3 +248,4 @@ jobs:
             deployment/"${{ inputs.deployment }}" \
             --namespace "${{ inputs.namespace }}" \
             --timeout "${{ inputs.rollout_timeout }}"
+
