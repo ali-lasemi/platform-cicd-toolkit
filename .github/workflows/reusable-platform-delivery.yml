@@ -1,0 +1,193 @@
+﻿name: Reusable Platform Delivery
+
+on:
+  workflow_call:
+    inputs:
+      registry:
+        description: Container registry
+        required: false
+        type: string
+        default: ghcr.io
+
+      image_name:
+        description: Container image name
+        required: true
+        type: string
+
+      context:
+        description: Docker build context
+        required: false
+        type: string
+        default: .
+
+      dockerfile:
+        description: Dockerfile path
+        required: false
+        type: string
+        default: ./Dockerfile
+
+      platforms:
+        description: Target container platforms
+        required: false
+        type: string
+        default: linux/amd64
+
+      security_severity:
+        description: Vulnerability severities that block delivery
+        required: false
+        type: string
+        default: CRITICAL,HIGH
+
+      deploy:
+        description: Deploy to Kubernetes after security validation
+        required: false
+        type: boolean
+        default: false
+
+      environment:
+        description: Deployment environment
+        required: false
+        type: string
+        default: staging
+
+      namespace:
+        description: Kubernetes namespace
+        required: false
+        type: string
+        default: staging
+
+      manifests:
+        description: Kubernetes manifest directory
+        required: false
+        type: string
+        default: kubernetes
+
+      deployment:
+        description: Kubernetes deployment name
+        required: false
+        type: string
+        default: application
+
+      container:
+        description: Kubernetes container name
+        required: false
+        type: string
+        default: application
+
+    secrets:
+      registry_password:
+        required: true
+
+      kubeconfig:
+        required: false
+
+    outputs:
+      image:
+        description: Published image
+        value: ${{ jobs.metadata.outputs.image }}
+
+      digest:
+        description: Published image digest
+        value: ${{ jobs.metadata.outputs.digest }}
+
+      immutable_image:
+        description: Immutable image reference
+        value: ${{ jobs.metadata.outputs.immutable_image }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and publish
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      registry: ${{ inputs.registry }}
+      registry_username: ${{ github.actor }}
+      image_name: ${{ inputs.image_name }}
+      context: ${{ inputs.context }}
+      dockerfile: ${{ inputs.dockerfile }}
+      platforms: ${{ inputs.platforms }}
+      push: true
+    secrets:
+      registry_password: ${{ secrets.registry_password }}
+
+  metadata:
+    name: Resolve immutable artifact
+    needs: build
+    runs-on: ubuntu-latest
+
+    outputs:
+      image: ${{ steps.resolve.outputs.image }}
+      digest: ${{ steps.resolve.outputs.digest }}
+      immutable_image: ${{ steps.resolve.outputs.immutable_image }}
+
+    steps:
+      - name: Validate build outputs
+        id: resolve
+        shell: bash
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "$IMAGE" ]]; then
+            echo "::error::Container build did not return an image reference"
+            exit 1
+          fi
+
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Container build did not return a valid immutable digest"
+            exit 1
+          fi
+
+          IMMUTABLE_IMAGE="${IMAGE}@${DIGEST}"
+
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "immutable_image=${IMMUTABLE_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Write artifact summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Immutable Build Artifact"
+            echo
+            echo "- Image: \`${{ steps.resolve.outputs.image }}\`"
+            echo "- Digest: \`${{ steps.resolve.outputs.digest }}\`"
+            echo "- Reference: \`${{ steps.resolve.outputs.immutable_image }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  security:
+    name: Security gate
+    needs: metadata
+    uses: ./.github/workflows/reusable-container-security.yml
+    with:
+      image: ${{ needs.metadata.outputs.immutable_image }}
+      severity: ${{ inputs.security_severity }}
+      ignore_unfixed: true
+      scan_secrets: true
+      generate_sbom: true
+
+  deploy:
+    name: Kubernetes delivery
+    if: inputs.deploy
+    needs:
+      - metadata
+      - security
+    uses: ./.github/workflows/reusable-kubernetes-deploy.yml
+    with:
+      environment: ${{ inputs.environment }}
+      namespace: ${{ inputs.namespace }}
+      manifests: ${{ inputs.manifests }}
+      deployment: ${{ inputs.deployment }}
+      container: ${{ inputs.container }}
+      image: ${{ needs.metadata.outputs.immutable_image }}
+      rollout_timeout: 300s
+      create_namespace: true
+    secrets:
+      kubeconfig: ${{ secrets.kubeconfig }}

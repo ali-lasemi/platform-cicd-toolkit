@@ -1,0 +1,30 @@
+﻿name: Platform Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy after security validation
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  delivery:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-platform-delivery.yml@main
+    with:
+      registry: ghcr.io
+      image_name: ${{ github.repository }}
+      context: .
+      dockerfile: ./Dockerfile
+      platforms: linux/amd64
+      security_severity: CRITICAL,HIGH
+      deploy: ${{ inputs.deploy }}
+      environment: staging
+      namespace: staging
+      manifests: kubernetes
+      deployment: application
+      container: application
+    secrets:
+      registry_password: ${{ secrets.GITHUB_TOKEN }}
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}

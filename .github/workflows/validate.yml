@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check required files
         shell: bash
@@ -41,6 +41,7 @@ jobs:
             ".github/workflows/reusable-artifact-management.yml"
             ".github/workflows/reusable-release.yml"
             ".github/workflows/reusable-gitops-promotion.yml"
+            ".github/workflows/reusable-platform-delivery.yml"
             "examples/github-actions/docker-build.yml"
             "examples/github-actions/container-security.yml"
             "examples/github-actions/kubernetes-delivery.yml"
@@ -50,6 +51,7 @@ jobs:
             "examples/github-actions/artifact-management.yml"
             "examples/github-actions/release.yml"
             "examples/github-actions/gitops-promotion.yml"
+            "examples/github-actions/platform-delivery.yml"
             "templates/gitops/base/kustomization.yaml"
             "templates/gitops/base/deployment.yaml"
             "templates/gitops/overlays/development/kustomization.yaml"
@@ -78,10 +80,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run actionlint
         uses: docker://rhysd/actionlint:latest
+
 
 
 
