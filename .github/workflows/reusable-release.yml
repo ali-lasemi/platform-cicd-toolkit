@@ -1,0 +1,228 @@
+﻿name: Reusable Release Automation
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Semantic version without v prefix
+        required: true
+        type: string
+
+      release_name:
+        description: Optional release display name
+        required: false
+        type: string
+        default: ""
+
+      artifact_path:
+        description: Optional file or directory to attach
+        required: false
+        type: string
+        default: ""
+
+      prerelease:
+        description: Mark release as prerelease
+        required: false
+        type: boolean
+        default: false
+
+      generate_notes:
+        description: Generate GitHub release notes
+        required: false
+        type: boolean
+        default: true
+
+    outputs:
+      tag:
+        description: Created release tag
+        value: ${{ jobs.release.outputs.tag }}
+
+      release_url:
+        description: GitHub release URL
+        value: ${{ jobs.release.outputs.release_url }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      release_url: ${{ steps.release.outputs.url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate semantic version
+        id: metadata
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([\-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid semantic version: $VERSION"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag already exists: $TAG"
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        shell: bash
+        env:
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+
+          PREVIOUS_TAG="$(
+            git describe --tags --abbrev=0 2>/dev/null || true
+          )"
+
+          {
+            echo "# ${TAG}"
+            echo
+
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              echo "Changes since ${PREVIOUS_TAG}:"
+              echo
+              git log \
+                "${PREVIOUS_TAG}..HEAD" \
+                --pretty=format:'- %s (%h)'
+            else
+              echo "Changes:"
+              echo
+              git log \
+                --pretty=format:'- %s (%h)'
+            fi
+
+            echo
+          } > release-notes.md
+
+      - name: Prepare release assets
+        if: inputs.artifact_path != ''
+        shell: bash
+        env:
+          SOURCE: ${{ inputs.artifact_path }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! -e "$SOURCE" ]]; then
+            echo "::error::Release artifact path does not exist: $SOURCE"
+            exit 1
+          fi
+
+          mkdir -p release-assets
+
+          if [[ -d "$SOURCE" ]]; then
+            NAME="$(basename "$SOURCE")"
+            tar \
+              --sort=name \
+              --mtime='UTC 1970-01-01' \
+              --owner=0 \
+              --group=0 \
+              --numeric-owner \
+              -czf "release-assets/${NAME}.tar.gz" \
+              "$SOURCE"
+          else
+            cp "$SOURCE" release-assets/
+          fi
+
+          (
+            cd release-assets
+            sha256sum * > SHA256SUMS
+          )
+
+      - name: Create Git tag
+        shell: bash
+        env:
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag \
+            --annotate "$TAG" \
+            --message "Release $TAG"
+
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+          RELEASE_NAME: ${{ inputs.release_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          GENERATE_NOTES: ${{ inputs.generate_notes }}
+        run: |
+          set -Eeuo pipefail
+
+          NAME="$RELEASE_NAME"
+
+          if [[ -z "$NAME" ]]; then
+            NAME="$TAG"
+          fi
+
+          ARGS=(
+            release
+            create
+            "$TAG"
+            --title "$NAME"
+            --notes-file release-notes.md
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          if [[ "$GENERATE_NOTES" == "true" ]]; then
+            ARGS+=(--generate-notes)
+          fi
+
+          if [[ -d release-assets ]]; then
+            ARGS+=(release-assets/*)
+          fi
+
+          gh "${ARGS[@]}"
+
+          URL="$(
+            gh release view "$TAG" \
+              --json url \
+              --jq '.url'
+          )"
+
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Write release summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## Release"
+            echo
+            echo "- Tag: \`${{ steps.metadata.outputs.tag }}\`"
+            echo "- URL: ${{ steps.release.outputs.url }}"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

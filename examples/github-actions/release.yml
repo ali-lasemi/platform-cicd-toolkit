@@ -1,0 +1,24 @@
+﻿name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without v prefix
+        required: true
+        type: string
+
+      prerelease:
+        description: Create prerelease
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  release:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-release.yml@main
+    with:
+      version: ${{ inputs.version }}
+      artifact_path: templates
+      prerelease: ${{ inputs.prerelease }}
+      generate_notes: true
