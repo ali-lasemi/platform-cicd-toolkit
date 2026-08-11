@@ -1,0 +1,215 @@
+﻿name: Reusable Kubernetes Canary Deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment name
+        required: true
+        type: string
+
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        type: string
+
+      deployment:
+        description: Stable deployment name
+        required: true
+        type: string
+
+      container:
+        description: Container name inside the deployment
+        required: true
+        type: string
+
+      image:
+        description: Immutable container image reference
+        required: true
+        type: string
+
+      canary_deployment:
+        description: Canary deployment name
+        required: true
+        type: string
+
+      canary_replicas:
+        description: Canary replica count
+        required: false
+        type: number
+        default: 1
+
+      rollout_timeout:
+        description: Kubernetes rollout timeout
+        required: false
+        type: string
+        default: 180s
+
+      healthcheck_url:
+        description: Optional external healthcheck URL
+        required: false
+        type: string
+        default: ""
+
+    secrets:
+      kubeconfig:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-${{ inputs.environment }}-${{ inputs.namespace }}-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-canary:
+    name: Deploy canary
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Configure kubectl
+        shell: bash
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.kubeconfig }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_CONTENT" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          kubectl version --client
+
+      - name: Verify Kubernetes access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          kubectl auth can-i get deployments -n "${{ inputs.namespace }}" | grep -qx yes
+          kubectl auth can-i patch deployments -n "${{ inputs.namespace }}" | grep -qx yes
+
+      - name: Capture current canary image
+        id: previous
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          PREVIOUS_IMAGE="$(
+            kubectl get deployment "${{ inputs.canary_deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath="{.spec.template.spec.containers[?(@.name=='${{ inputs.container }}')].image}"
+          )"
+
+          echo "image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Scale canary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl scale deployment "${{ inputs.canary_deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --replicas "${{ inputs.canary_replicas }}"
+
+      - name: Deploy immutable image to canary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl set image deployment/"${{ inputs.canary_deployment }}" \
+            "${{ inputs.container }}=${{ inputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+      - name: Wait for canary rollout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl rollout status deployment/"${{ inputs.canary_deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"
+
+      - name: Verify canary readiness
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DESIRED="$(
+            kubectl get deployment "${{ inputs.canary_deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.spec.replicas}'
+          )"
+
+          READY="$(
+            kubectl get deployment "${{ inputs.canary_deployment }}" \
+              --namespace "${{ inputs.namespace }}" \
+              -o jsonpath='{.status.readyReplicas}'
+          )"
+
+          READY="${READY:-0}"
+
+          if [[ "$READY" -lt "$DESIRED" ]]; then
+            echo "::error::Canary is not fully ready (${READY}/${DESIRED})"
+            exit 1
+          fi
+
+      - name: External health check
+        if: inputs.healthcheck_url != ''
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          for attempt in {1..10}; do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 10 \
+              "${{ inputs.healthcheck_url }}"; then
+              exit 0
+            fi
+
+            sleep 5
+          done
+
+          echo "::error::Canary health check failed"
+          exit 1
+
+      - name: Promote canary image to stable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          kubectl set image deployment/"${{ inputs.deployment }}" \
+            "${{ inputs.container }}=${{ inputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          kubectl rollout status deployment/"${{ inputs.deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"
+
+      - name: Roll back stable deployment
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+
+          kubectl rollout undo deployment/"${{ inputs.deployment }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          kubectl rollout status deployment/"${{ inputs.deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"
+
+      - name: Restore canary image after failure
+        if: failure() && steps.previous.outputs.image != ''
+        shell: bash
+        run: |
+          set +e
+
+          kubectl set image deployment/"${{ inputs.canary_deployment }}" \
+            "${{ inputs.container }}=${{ steps.previous.outputs.image }}" \
+            --namespace "${{ inputs.namespace }}"
+
+          kubectl rollout status deployment/"${{ inputs.canary_deployment }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --timeout "${{ inputs.rollout_timeout }}"

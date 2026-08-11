@@ -1,0 +1,25 @@
+﻿name: Kubernetes Canary Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable image reference
+        required: true
+        type: string
+
+jobs:
+  canary:
+    uses: ali-lasemi/platform-cicd-toolkit/.github/workflows/reusable-kubernetes-canary.yml@main
+    with:
+      environment: production
+      namespace: production
+      deployment: app
+      canary_deployment: app-canary
+      container: app
+      image: ${{ inputs.image }}
+      canary_replicas: 1
+      rollout_timeout: 180s
+      healthcheck_url: https://example.com/health
+    secrets:
+      kubeconfig: ${{ secrets.KUBECONFIG_B64 }}
