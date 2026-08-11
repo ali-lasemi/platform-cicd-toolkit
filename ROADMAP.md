@@ -41,3 +41,9 @@
 - [ ] Backstage integration
 - [ ] OpenTelemetry delivery telemetry
 
+
+## v1.0.0
+
+Production-ready baseline completed.
+
+The repository now includes reusable CI/CD workflows, Kubernetes delivery, progressive delivery, GitOps, supply-chain security, policy-as-code, cloud OIDC, release automation, governance, and executable validation.
