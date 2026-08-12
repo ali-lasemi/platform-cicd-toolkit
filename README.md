@@ -249,6 +249,25 @@ Repository CI validates:
       fixtures/
       policy/
 
+
+## Production Readiness
+
+This repository enforces production-oriented delivery controls including:
+
+- immutable container references
+- reusable workflow contracts
+- least-privilege GitHub Actions permissions
+- pinned third-party Actions
+- vulnerability and secret scanning
+- SBOM and provenance generation
+- policy-as-code validation
+- rollout health verification
+- rollback paths
+- progressive delivery
+- GitOps environment promotion
+- cloud OIDC authentication
+
+The current production baseline is released as `v1.0.0`.
 ## Repository Governance
 
 The repository includes:
@@ -283,3 +302,4 @@ See [ROADMAP.md](ROADMAP.md).
 ## License
 
 MIT
+
