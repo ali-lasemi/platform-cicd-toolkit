@@ -1,133 +1,285 @@
 ﻿# Platform CI/CD Toolkit
 
-Production-oriented reusable CI/CD and Platform Engineering delivery workflows for GitHub Actions and GitLab CI.
+[![Validate Repository](https://github.com/ali-lasemi/platform-cicd-toolkit/actions/workflows/validate.yml/badge.svg)](https://github.com/ali-lasemi/platform-cicd-toolkit/actions/workflows/validate.yml)
+[![Workflow Contract Tests](https://github.com/ali-lasemi/platform-cicd-toolkit/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/ali-lasemi/platform-cicd-toolkit/actions/workflows/contract-tests.yml)
+[![Release](https://img.shields.io/github/v/release/ali-lasemi/platform-cicd-toolkit)](https://github.com/ali-lasemi/platform-cicd-toolkit/releases)
+[![License](https://img.shields.io/github/license/ali-lasemi/platform-cicd-toolkit)](LICENSE)
 
-## Capabilities
+Production-grade reusable CI/CD, GitOps, progressive delivery, and software supply-chain workflows for Platform Engineering teams.
+
+This toolkit provides reusable delivery primitives for GitHub Actions and GitLab CI so engineering teams can standardize secure software delivery without duplicating pipeline logic across repositories.
+
+## Core Capabilities
+
+### CI/CD
 
 - Reusable GitHub Actions workflows
 - Reusable GitLab CI components
 - Docker Buildx
-- Immutable image publishing
-- Vulnerability scanning
-- Secret scanning
-- SBOM generation
-- Cosign keyless signing
-- Provenance attestations
-- Kubernetes delivery
-- Automatic rollback
-- Canary deployment
-- Blue-green traffic switching
-- Helm atomic releases
-- Multi-environment promotion
-- GitOps delivery
-- Kustomize overlays
-- Argo CD patterns
-- Artifact management
+- BuildKit caching
+- Immutable SHA and digest-based delivery
+- Deterministic artifact management
 - Release automation
-- Executable workflow contract tests
+
+### Kubernetes Delivery
+
+- Verified Kubernetes deployments
+- Automatic rollback
+- Canary delivery
+- Blue-Green traffic switching
+- Argo Rollouts progressive delivery
+- Helm atomic releases
+- Rollout health validation
 - Kubernetes schema validation
-- Helm validation
-- ShellCheck
-- Actionlint
-- Immutable GitHub Action pinning
-
-## Architecture
-
-See `docs/architecture.md`.
-
-## Reusable Workflows
-
-- reusable-docker-build.yml
-- reusable-container-security.yml
-- reusable-supply-chain-security.yml
-- reusable-kubernetes-deploy.yml
-- reusable-kubernetes-canary.yml
-- reusable-kubernetes-blue-green.yml
-- reusable-helm-release.yml
-- reusable-environment-promotion.yml
-- reusable-gitops-promotion.yml
-- reusable-artifact-management.yml
-- reusable-release.yml
-- reusable-platform-delivery.yml
-
-## Delivery Strategies
-
-### Standard Kubernetes Delivery
-
-Validated rollout with immutable images and rollback support.
-
-### Canary
-
-Deploys and validates the canary workload before promotion.
-
-### Blue-Green
-
-Deploys the inactive color, validates it, switches Kubernetes Service traffic, verifies routing, and restores previous traffic on failure.
-
-### Helm
-
-Provides atomic Helm upgrades, validation, history management, and rollback.
 
 ### GitOps
 
-Updates immutable desired state through Kustomize overlays for development, staging, and production.
+- Kustomize environment overlays
+- Development, staging, and production promotion
+- Argo CD reconciliation patterns
+- Immutable GitOps image updates
+- Auditable desired-state changes
 
-## Security
+### Security and Software Supply Chain
 
-Security controls include:
-
-- immutable image digests
-- pinned GitHub Actions
-- vulnerability gates
-- secret scanning
+- Trivy vulnerability scanning
+- Gitleaks secret detection
 - SBOM generation
-- keyless signing
-- OIDC
-- provenance attestations
-- hardened Kubernetes workload examples
+- Cosign keyless signing
+- GitHub OIDC
+- Provenance attestations
+- Immutable GitHub Action pinning
+- Least-privilege workflow permissions
+- Conftest and Rego policy-as-code
 
-See `SECURITY.md`.
+### Cloud Delivery
+
+- AWS EKS delivery
+- GitHub Actions OIDC authentication
+- AWS IAM role assumption without static credentials
+- Kubernetes authorization validation
+- Immutable image enforcement
+
+## Delivery Architecture
+
+    Source
+      |
+      v
+    Reusable CI Build
+    Docker / Buildx
+      |
+      v
+    Immutable Artifact
+    SHA / Image Digest
+      |
+      v
+    Security & Supply Chain
+    Trivy / Gitleaks / SBOM
+    Cosign / OIDC / Provenance
+      |
+      v
+    Policy Validation
+    Conftest / Rego
+      |
+      +-------------------+-------------------+
+      |                   |                   |
+      v                   v                   v
+    Kubernetes           Helm              Argo Rollouts
+    Deployment           Release           Progressive Delivery
+      |                   |                   |
+      +-------------------+-------------------+
+                          |
+                          v
+                    Environment Gates
+                    Dev -> Stage -> Prod
+                          |
+                          v
+                    GitOps Desired State
+                    Kustomize / Argo CD
+
+Detailed architecture: [docs/architecture.md](docs/architecture.md)
+
+## Reusable GitHub Actions Workflows
+
+| Workflow | Purpose |
+|---|---|
+| `reusable-docker-build.yml` | Build and publish immutable container images |
+| `reusable-container-security.yml` | Vulnerability, secret, and SBOM validation |
+| `reusable-supply-chain-security.yml` | Keyless signing and provenance attestations |
+| `reusable-policy-validation.yml` | Kubernetes policy-as-code validation |
+| `reusable-kubernetes-deploy.yml` | Verified Kubernetes rollout and rollback |
+| `reusable-kubernetes-canary.yml` | Canary delivery |
+| `reusable-kubernetes-blue-green.yml` | Blue-Green deployment and traffic switching |
+| `reusable-argo-rollouts.yml` | Argo Rollouts progressive delivery |
+| `reusable-helm-release.yml` | Atomic Helm releases |
+| `reusable-environment-promotion.yml` | Ordered environment promotion |
+| `reusable-gitops-promotion.yml` | GitOps desired-state promotion |
+| `reusable-artifact-management.yml` | Deterministic artifact management |
+| `reusable-release.yml` | GitHub release automation |
+| `reusable-platform-delivery.yml` | End-to-end platform delivery |
+| `reusable-aws-eks-delivery.yml` | AWS EKS delivery through GitHub OIDC |
+
+## Progressive Delivery
+
+### Canary
+
+Deploys a candidate workload and validates rollout health before promotion.
+
+### Blue-Green
+
+Deploys the inactive environment first, validates it, switches Kubernetes Service traffic to the new color, and verifies the resulting route.
+
+Traffic can be restored to the previous environment when verification fails.
+
+### Argo Rollouts
+
+Provides Kubernetes-native progressive delivery using Argo Rollouts with staged traffic progression, pause gates, rollout verification, promotion, and abort handling.
+
+## Policy-as-Code
+
+Kubernetes workloads are validated using Conftest and Rego.
+
+Policies enforce production controls including:
+
+- non-root containers
+- read-only root filesystems
+- privilege escalation disabled
+- dropped Linux capabilities
+- CPU and memory requests
+- CPU and memory limits
+- readiness probes
+- liveness probes
+- minimum replica requirements
+- rejection of `latest` container tags
+
+The repository includes compliant and intentionally non-compliant fixtures to validate policy behavior.
+
+## Software Supply Chain
+
+    Build
+      -> Vulnerability Scan
+      -> Secret Scan
+      -> SBOM
+      -> Immutable Digest
+      -> Keyless Signing
+      -> OIDC Identity Verification
+      -> Provenance Attestation
+      -> Deployment
+
+Third-party GitHub Actions used by repository workflows are pinned to immutable commit SHAs.
+
+## AWS EKS OIDC Delivery
+
+The AWS EKS workflow uses GitHub OIDC instead of long-lived AWS access keys.
+
+The workflow:
+
+1. Requests a GitHub OIDC identity token
+2. Assumes an AWS IAM role
+3. Verifies AWS caller identity
+4. Configures EKS access
+5. Validates Kubernetes authorization
+6. Deploys an immutable container image
+7. Verifies rollout health
+8. Rolls back on failure
+
+## GitOps
+
+Environment overlays are provided for:
+
+- development
+- staging
+- production
+
+Kustomize manages desired-state composition while Argo CD provides reconciliation patterns.
+
+## GitLab CI
+
+Reusable GitLab CI components cover:
+
+- container builds
+- immutable image publishing
+- vulnerability validation
+- Kubernetes delivery
+- deployment serialization
+- rollback
+
+See [examples/gitlab-ci](examples/gitlab-ci).
 
 ## Validation
 
 Repository CI validates:
 
-- workflow syntax
-- immutable Action references
-- YAML
+- repository integrity
+- GitHub Actions syntax
+- immutable GitHub Action references
+- YAML syntax
 - shell scripts
-- Helm
+- Helm charts
 - Kubernetes schemas
-- GitOps overlays
+- Kustomize overlays
+- GitOps manifests
+- Kubernetes policies
 - reusable workflow runtime contracts
 
 ## Repository Structure
 
-.github/workflows/
-examples/github-actions/
-examples/gitlab-ci/
-templates/kubernetes/
-templates/helm/
-templates/gitops/
-templates/gitlab-ci/
-tests/
-docs/
+    .github/
+      workflows/
+      ISSUE_TEMPLATE/
 
-## License
+    docs/
+      architecture.md
 
-MIT
+    examples/
+      github-actions/
+      gitlab-ci/
+
+    policies/
+      kubernetes/
+
+    templates/
+      kubernetes/
+      helm/
+      gitops/
+      gitlab-ci/
+      argo-rollouts/
+
+    tests/
+      fixtures/
+      policy/
 
 ## Repository Governance
 
 The repository includes:
 
 - CODEOWNERS
-- Dependabot automation
+- Dependabot
 - pull request templates
-- structured issue templates
+- structured issue forms
 - security reporting guidance
 - contribution requirements
 - immutable third-party Action enforcement
 - executable workflow contract tests
 
-Changes to delivery logic are expected to preserve least privilege, immutable artifacts, explicit verification, and rollback behavior.
+## Release
+
+Current production baseline: **v1.0.0**
+
+See [Releases](https://github.com/ali-lasemi/platform-cicd-toolkit/releases).
+
+## Security
+
+See [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
+
+## License
+
+MIT
